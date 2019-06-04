@@ -155,8 +155,8 @@ func (api *PublicFilterAPI) NewPendingTransactionBodies(ctx context.Context) (*r
 				for _, h := range hashes {
 					// No finalized transaction, try to retrieve it from the pool
 					if tx := api.backend.GetPoolTransaction(h); tx != nil {
-						//jeetest := tx.String()
-						notifier.Notify(rpcSub.ID, tx)
+						jeetest := tx.String()
+						notifier.Notify(rpcSub.ID, jeetest)
 					}
 				}
 			case <-rpcSub.Err():

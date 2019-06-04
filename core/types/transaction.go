@@ -19,6 +19,7 @@ package types
 import (
 	"container/heap"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"sync/atomic"
@@ -210,6 +211,71 @@ func (tx *Transaction) Size() common.StorageSize {
 	rlp.Encode(&c, &tx.data)
 	tx.size.Store(common.StorageSize(c))
 	return common.StorageSize(c)
+}
+
+// deriveSigner makes a *best* guess about which signer to use.
+func deriveSigner(V *big.Int) Signer {
+	if V.Sign() != 0 && isProtectedV(V) {
+		return NewEIP155Signer(deriveChainId(V))
+	} else {
+		return HomesteadSigner{}
+	}
+}
+
+type FullTxData struct {
+	Hash         common.Hash     `json:"hash" gencodec:"required"`
+	AccountNonce hexutil.Uint64  `json:"nonce"    gencodec:"required"`
+	Price        hexutil.Uint64  `json:"gasPrice" gencodec:"required"`
+	GasLimit     hexutil.Uint64  `json:"gas"      gencodec:"required"`
+	Recipient    common.Address  `json:"to"       rlp:"nil"` // nil means contract creation
+	From 		 common.Address
+	Amount       hexutil.Uint64  `json:"value"    gencodec:"required"`
+	Payload      []byte          `json:"input"    gencodec:"required"`
+
+	// Signature values
+	V hexutil.Uint64 `json:"v" gencodec:"required"`
+	R hexutil.Uint64 `json:"r" gencodec:"required"`
+	S hexutil.Uint64 `json:"s" gencodec:"required"`
+}
+
+func (tx *Transaction) String() *FullTxData {
+	var from, to string
+	if tx.data.V != nil {
+		// make a best guess about the signer and use that to derive
+		// the sender.
+		signer := deriveSigner(tx.data.V)
+		if f, err := Sender(signer, tx); err != nil { // derive but don't cache
+			from = "[invalid sender: invalid sig]"
+		} else {
+			from = fmt.Sprintf("%x", f[:])
+		}
+	} else {
+		from = "[invalid sender: nil V field]"
+	}
+
+	if tx.data.Recipient == nil {
+		to = "[contract creation]"
+	} else {
+		to = fmt.Sprintf("%x", tx.data.Recipient[:])
+	}
+
+	enc, _ := rlp.EncodeToBytes(&tx.data)
+
+	jee := FullTxData{
+		Hash: tx.Hash(),
+		AccountNonce: hexutil.Uint64(tx.Nonce()),
+		Price: hexutil.Uint64(tx.GasPrice().Uint64()),
+		GasLimit: hexutil.Uint64(tx.Gas()),
+		Recipient: common.HexToAddress(to),
+		From: common.HexToAddress(from),
+		Amount: hexutil.Uint64(tx.Value().Uint64()),
+		Payload: enc,
+		V: hexutil.Uint64(tx.data.V.Uint64()),
+		R: hexutil.Uint64(tx.data.R.Uint64()),
+		S: hexutil.Uint64(tx.data.S.Uint64()),
+	}
+
+	return &jee
 }
 
 // AsMessage returns the transaction as a core.Message.
